@@ -715,23 +715,110 @@ def _contains_fmt_directive(
     Defaults to checking all directives (skip, off, on, yapf), but can be
     narrowed to specific ones.
 
+    Only recognizes directives that appear at the start of the comment content,
+    not commented-out directives (e.g., '## fmt: off' is ignored).
+
     Matching styles:
       # foobar                    <-- single comment
       # foobar # foobar # foobar  <-- multiple comments
       # foobar; foobar            <-- list of comments (; separated)
     """
+    # First, check if the comment_line itself is an exact match
+    if comment_line in directives:
+        return True
+
+    # Count consecutive '#' characters at the very start to detect commented-out directives
+    # A commented-out directive has multiple '#' at the start: "## fmt: off" or "# # fmt: off"
+    hash_count = len(comment_line) - len(comment_line.lstrip("#"))
+    if hash_count > 1:
+        # Multiple consecutive '#' at the start means this is a commented-out directive
+        return False
+
+    # Strip the leading comment prefix (exactly once) to get the comment content
+    if comment_line.startswith(_COMMENT_PREFIX):
+        # Remove the prefix (but not leading whitespace yet)
+        content = comment_line[len(_COMMENT_PREFIX) :]
+    elif comment_line.startswith("#"):
+        # Handle comments like "#fmt:off" (no space after #)
+        content = comment_line[1:]
+    else:
+        # Not a comment at all
+        return False
+
+    # Check if content starts with another '#' (after optional whitespace)
+    # This catches "# # fmt: off" and "# ## fmt: off" patterns
+    if content.lstrip().startswith("#"):
+        # This is a commented-out directive
+        return False
+
+    # Now we can strip leading whitespace for further processing
+    content = content.lstrip()
+
+    # Check if any directive appears at the start of the content
+    for directive in directives:
+        # Extract the directive text without the comment prefix
+        if directive.startswith(_COMMENT_PREFIX):
+            directive_text = directive[len(_COMMENT_PREFIX) :].lstrip()
+        else:
+            directive_text = directive.lstrip("#").lstrip()
+
+        if content.startswith(directive_text):
+            # Check what comes after the directive
+            after_directive = content[len(directive_text) :]
+            # Valid if: nothing after, or whitespace followed by # (trailing comment)
+            # Invalid if: alphanumeric/word characters follow (e.g., "fmt:off directive")
+            if not after_directive:
+                # Directive is the entire content
+                return True
+            elif after_directive.lstrip().startswith("#"):
+                # Directive followed by trailing comment like "# fmt: off # some comment"
+                return True
+            # If after_directive starts with alphanumeric, this is prose, not a directive
+            # e.g., "# fmt:off directive" - the word "directive" makes this prose
+
+    # Also check for multi-comment patterns with '#' separators
+    # e.g., "# pylint # fmt:skip" should split on '#' and check each part
+    # But only match EXACT directives, not substrings within text
+    #
+    # Key distinction:
+    # - "# pylint # fmt:skip" splits to ['pylint ', ' fmt:skip'] - both non-empty -> valid
+    # - "# # fmt: off" splits to ['', ' fmt: off'] - first empty -> invalid (commented-out)
+    # - "# Remember to use # fmt: off" splits to ['Remember to use ', ' fmt: off']
+    #   The first part has multiple words, suggesting prose, not a directive marker
+
+    split_parts = content.split("#")
+    if len(split_parts) > 1:
+        # Check if first part is empty (indicates commented-out directive like "# # fmt: off")
+        first_part = split_parts[0].strip()
+        if not first_part:
+            # This is a "# # ..." pattern which we already caught above, but double-check
+            return False
+
+        # Check if this looks like a multi-directive comment or just prose
+        # If the first part has more than 2 words, it's likely prose, not a directive marker
+        if len(first_part.split()) > 2:
+            # This looks like prose (e.g., "Remember to use")
+            return False
+
+        # Now check each part for exact directive matches
+        for comment in split_parts[1:]:  # Skip the first part
+            comment_stripped = comment.strip()
+            if comment_stripped:
+                # Reconstruct as a proper comment and check if it's an EXACT directive match
+                reconstructed = _COMMENT_PREFIX + comment_stripped
+                if reconstructed in directives:
+                    return True
+
+                # Also check without space after # for formats like "fmt:skip"
+                reconstructed_no_space = "#" + comment_stripped
+                if reconstructed_no_space in directives:
+                    return True
+
+    # Also check the original multi-style comment handling for ; separated lists
     semantic_comment_blocks = [
-        comment_line,
-        *[
-            _COMMENT_PREFIX + comment.strip()
-            for comment in comment_line.split(_COMMENT_PREFIX)[1:]
-        ],
-        *[
-            _COMMENT_PREFIX + comment.strip()
-            for comment in comment_line.strip(_COMMENT_PREFIX).split(
-                _COMMENT_LIST_SEPARATOR
-            )
-        ],
+        _COMMENT_PREFIX + comment.strip()
+        for comment in content.split(_COMMENT_LIST_SEPARATOR)
     ]
 
+    # Only match exact directives, not substrings
     return any(comment in directives for comment in semantic_comment_blocks)
