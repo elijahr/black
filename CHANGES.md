@@ -13,6 +13,11 @@
 
 <!-- Changes that affect Black's stable style -->
 
+- Fixed a crash when Black encounters commented-out fmt directives (e.g.,
+  `# # fmt: off`) within code. These are now correctly treated as regular comments
+  rather than formatting directives. The `_contains_fmt_directive()` function was
+  refactored for improved maintainability. (#4841)
+
 ### Preview style
 
 <!-- Changes that affect Black's preview style -->

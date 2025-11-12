@@ -383,7 +383,7 @@ def _handle_regular_fmt_block(
     parent = first.parent
     prefix = first.prefix
 
-    if comment.value in FMT_OFF:
+    if _contains_fmt_directive(comment.value, FMT_OFF):
         first.prefix = prefix[comment.consumed :]
     if is_fmt_skip:
         first.prefix = ""
@@ -394,7 +394,7 @@ def _handle_regular_fmt_block(
     hidden_value = "".join(str(n) for n in ignored_nodes)
     comment_lineno = leaf.lineno - comment.newlines
 
-    if comment.value in FMT_OFF:
+    if _contains_fmt_directive(comment.value, FMT_OFF):
         fmt_off_prefix = ""
         if len(lines) > 0 and not any(
             line[0] <= comment_lineno <= line[1] for line in lines
