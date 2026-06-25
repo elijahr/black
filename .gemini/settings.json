@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "sequentialthinking": {
+      "command": "node /tmp/mcp_servers/src/sequentialthinking/dist/index.js",
+      "args": []
+    }
+  }
+}
